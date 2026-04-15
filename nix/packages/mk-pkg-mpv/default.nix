@@ -9,9 +9,11 @@ let
   name = "mpv";
   packageLock = (import ../../../packages.lock.nix).${name};
   inherit (packageLock) version;
+  libplaceboLock = (import ../../../packages.lock.nix).libplacebo;
 
   variants = import ../../utils/constants/variants.nix;
   oses = import ../../utils/constants/oses.nix;
+  buildProfile = import ../../utils/default/build-profile.nix;
   callPackage = pkgs.lib.callPackageWith {
     inherit
       pkgs
@@ -22,23 +24,61 @@ let
   };
   nativeFile = callPackage ../../utils/native-file/default.nix { };
   crossFile = callPackage ../../utils/cross-file/default.nix { };
+  sourceFromOverride = callPackage ../../utils/source/default.nix { };
   xctoolchainLipo = callPackage ../../utils/xctoolchain/lipo.nix { };
   ffmpeg = callPackage ../mk-pkg-ffmpeg/default.nix { };
   uchardet = callPackage ../mk-pkg-uchardet/default.nix { };
   libass = callPackage ../mk-pkg-libass/default.nix { };
+  pythonForBuild = pkgs.python3.withPackages (ps: [ ps.jinja2 ]);
+  shaderc =
+    if builtins.hasAttr "shaderc" pkgs then
+      builtins.getAttr "shaderc" pkgs
+    else
+      null;
+  vulkanLoader =
+    if builtins.hasAttr "vulkan-loader" pkgs then
+      builtins.getAttr "vulkan-loader" pkgs
+    else
+      null;
+  isMacOSHdrProfile =
+    buildProfile == "macos-hdr"
+    && os == oses.macos
+    && variant == variants.video;
+  hdrBuildInputs =
+    if !isMacOSHdrProfile then
+      [ ]
+    else if vulkanLoader == null then
+      abort "libmpv-darwin-build: nixpkgs is missing vulkan-loader, required for macos-hdr profile"
+    else if shaderc == null then
+      abort "libmpv-darwin-build: nixpkgs is missing shaderc, required for macos-hdr profile"
+    else
+      [
+        vulkanLoader
+        shaderc
+      ];
 
   nativeBuildInputs = [
     pkgs.meson
     pkgs.ninja
     pkgs.pkg-config
-    pkgs.python3
+    pythonForBuild
     xctoolchainLipo
   ];
 
   pname = import ../../utils/name/package.nix name;
-  src = callPackage ../../utils/fetch-tarball/default.nix {
-    name = "${pname}-source-${version}";
+  src = sourceFromOverride {
+    name = pname;
+    version = version;
     inherit (packageLock) url sha256;
+    envVar = "LIBMPV_DARWIN_MPV_SRC";
+    localPath = ../../../../mpv;
+  };
+  libplaceboSource = sourceFromOverride {
+    name = "libplacebo";
+    version = libplaceboLock.version;
+    inherit (libplaceboLock) url sha256;
+    envVar = "LIBMPV_DARWIN_LIBPLACEBO_SRC";
+    localPath = ../../../../libplacebo;
   };
   patchedSource = pkgs.runCommand "${pname}-patched-source-${variant}-${version}" { } ''
     cp -r ${src} src
@@ -51,6 +91,12 @@ let
     if [ "${variant}" == "${variants.audio}" ]; then
       patch -p1 <${../../../patches/mpv-remove-libass.patch}
     fi
+    ${pkgs.lib.optionalString isMacOSHdrProfile ''
+    mkdir -p "$src/subprojects"
+    rm -rf "$src/subprojects/libplacebo"
+    cp -r ${libplaceboSource} "$src/subprojects/libplacebo"
+    chmod -R 777 "$src/subprojects/libplacebo"
+    ''}
     cd -
 
     cp -r $src $out
@@ -72,6 +118,7 @@ pkgs.stdenvNoCC.mkDerivation {
   inherit nativeBuildInputs;
   buildInputs =
     [ ffmpeg ]
+    ++ hdrBuildInputs
     ++ pkgs.lib.optionals (variant == "video") [
       uchardet
       libass
@@ -227,6 +274,22 @@ pkgs.stdenvNoCC.mkDerivation {
       -Dvideotoolbox-gl=enabled `# Videotoolbox with OpenGL`
     )
 
+    MACOS_HDR_OPTIONS=(
+      `# mpv renderer`
+      -Dlibplacebo=enabled `# libplacebo renderer support`
+      -Dvulkan=enabled `# Vulkan context support`
+      -Dswift-build=enabled `# Swift bits required by macvk`
+
+      `# bundled libplacebo subproject`
+      -Dlibplacebo:vulkan=enabled `# Vulkan backend`
+      -Dlibplacebo:vk-proc-addr=enabled `# Link against the Vulkan loader`
+      -Dlibplacebo:shaderc=enabled `# SPIR-V compiler`
+      -Dlibplacebo:glslang=disabled `# prefer shaderc for a smaller dependency set`
+      -Dlibplacebo:opengl=disabled `# macOS HDR path is Vulkan-first`
+    )
+
+    FORCE_FALLBACK_ARGS=()
+
     IOS_OPTIONS=(
       `# audio output features`
       -Daudiounit=enabled `# AudioUnit output for iOS`
@@ -248,6 +311,10 @@ pkgs.stdenvNoCC.mkDerivation {
       OPTIONS+=("''${MACOS_OPTIONS[@]}")
       if [ "${variant}" == "${variants.video}" ]; then
         OPTIONS+=("''${MACOS_VIDEO_OPTIONS[@]}")
+        ${pkgs.lib.optionalString isMacOSHdrProfile ''
+        OPTIONS+=("''${MACOS_HDR_OPTIONS[@]}")
+        FORCE_FALLBACK_ARGS+=(--force-fallback-for=libplacebo)
+        ''}
       fi
     elif [ "${os}" == "${oses.ios}" ]; then
       OPTIONS+=("''${IOS_OPTIONS[@]}")
@@ -260,6 +327,7 @@ pkgs.stdenvNoCC.mkDerivation {
       --native-file ${nativeFile} \
       --cross-file ${crossFile} \
       --prefix=$out \
+      "''${FORCE_FALLBACK_ARGS[@]}" \
       "''${OPTIONS[@]}" |
       tee configure.log
   '';

@@ -100,6 +100,23 @@ if arch != archs.universal then
           \;
       done
 
+      # Pull in transitive Nix store dylib dependencies so optional runtimes
+      # like Vulkan/MoltenVK also make it into the packaged output.
+      closure_changed=1
+      while [ "$closure_changed" -eq 1 ]; do
+        closure_changed=0
+        while IFS= read -r file; do
+          store_deps=$(otool -L "$file" | tail -n +3 | sed -n 's|.*\(/nix/store/[^ ]*\.dylib\).*|\1|p')
+          for dep in $store_deps; do
+            dep_name=$(basename "$dep")
+            if [ ! -f "./build/$dep_name" ]; then
+              cp "$dep" "./build/$dep_name"
+              closure_changed=1
+            fi
+          done
+        done < <(find ./build -maxdepth 1 -type f -name '*.dylib' | sort)
+      done
+
       # Rename dylib libfoo.100.99.88.dylib -> libfoo.dylib
       for file in ./build/lib*.dylib; do
         new_path=$(echo $file | sed -E 's/^(.*\/lib[^.]*).*$/\1.dylib/')

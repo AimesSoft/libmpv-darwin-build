@@ -89,6 +89,35 @@ $ nix build -v .#mk-out-archive-libs-macos-universal-video-default
 $ open result
 ```
 
+## Local source overrides
+
+The build can consume local `mpv` and `libplacebo` checkouts, which is useful
+when iterating on custom macOS video output work.
+
+```shell
+$ export LIBMPV_DARWIN_MPV_SRC=/absolute/path/to/mpv
+$ export LIBMPV_DARWIN_LIBPLACEBO_SRC=/absolute/path/to/libplacebo
+$ nix build -v .#mk-out-archive-xcframeworks-macos-universal-video-full
+```
+
+If those environment variables are unset, the build also auto-detects sibling
+checkouts at `../mpv` and `../libplacebo` when they exist.
+
+## macOS HDR profile
+
+`macos-hdr` is an opt-in profile for macOS video builds. It switches mpv to the
+bundled `libplacebo` subproject, enables the Vulkan/macvk path, and packages
+transitive runtime dylibs into the archive so extra graphics dependencies are
+carried into the final `.xcframework`.
+
+```shell
+$ export LIBMPV_DARWIN_BUILD_PROFILE=macos-hdr
+$ nix build -v .#mk-out-archive-xcframeworks-macos-universal-video-full
+```
+
+For simple toggling, `LIBMPV_DARWIN_ENABLE_MACOS_HDR=1` is treated as a shortcut
+for the same profile.
+
 ## Naming convention
 
 ```

@@ -49,6 +49,11 @@
     url = "https://wrapdb.mesonbuild.com/v2/libpng_1.6.40-1/get_patch";
     sha256 = "bad558070e0a82faa5c0ae553bcd12d49021fc4b628f232a8e58c3fbd281aae1";
   };
+  libplacebo = {
+    version = "7.360.1";
+    url = "https://github.com/haasn/libplacebo/archive/refs/tags/v7.360.1.tar.gz";
+    sha256 = "d05fdf90bea2f629eaa2d115e909fd356388ac639e54f77b87a018a6d76224bd";
+  };
   libvorbis = {
     version = "1.3.7";
     url = "https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz";
