@@ -148,6 +148,14 @@ if arch != archs.universal then
           install_name_tool -change $dep @rpath/$name $file
         done
       done
+
+      # Use the platform C++ runtime instead of emitting invalid C++.framework
+      # style wrappers for Nix libc++ runtime dylibs.
+      for file in ./build/lib*.dylib; do
+        install_name_tool -change @rpath/libc++.dylib /usr/lib/libc++.1.dylib $file 2>/dev/null || true
+        install_name_tool -change @rpath/libc++abi.dylib /usr/lib/libc++abi.dylib $file 2>/dev/null || true
+      done
+      rm -f ./build/libc++.dylib ./build/libc++abi.dylib
     '';
     installPhase = ''
       cp -r build $out
@@ -190,26 +198,27 @@ else
       deps="${pkgs.lib.concatStringsSep " " deps}"
       read -a deps <<< "$deps"
 
-      # Loop through all .dylib files in the first source directory
-      for lib in ''${deps[0]}/*.dylib; do
-        lib_name=$(basename $lib)
+      lib_names=$(
+        for dir in "''${deps[@]}"; do
+          find "$dir" -maxdepth 1 -type f -name '*.dylib' -exec basename {} \;
+        done | sort -u
+      )
 
-        # Initialize lipo command
-        lipo_cmd="lipo -create"
-
-        # Add each corresponding .dylib file from all source directories
-        for dir in ''${deps[@]}; do
-          if [ -f $dir/$lib_name ]; then
-            lipo_cmd+=" $dir/$lib_name"
-          else
-            echo "Error: $lib_name not found in $dir" 2> /dev/stderr
-            exit 1
+      for lib_name in $lib_names; do
+        available=()
+        for dir in "''${deps[@]}"; do
+          if [ -f "$dir/$lib_name" ]; then
+            available+=("$dir/$lib_name")
           fi
         done
 
-        # Set output to build directory and execute lipo command
-        lipo_cmd+=" -output ./build/$lib_name"
-        eval "$lipo_cmd"
+        if [ "''${#available[@]}" -eq 1 ]; then
+          echo "Warning: $lib_name is only present for one architecture; copying without lipo" 2> /dev/stderr
+          cp "''${available[0]}" "./build/$lib_name"
+          continue
+        fi
+
+        lipo -create "''${available[@]}" -output "./build/$lib_name"
       done
     '';
     installPhase = ''

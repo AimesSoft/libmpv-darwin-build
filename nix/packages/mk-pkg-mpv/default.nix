@@ -26,6 +26,7 @@ let
   crossFile = callPackage ../../utils/cross-file/default.nix { };
   sourceFromOverride = callPackage ../../utils/source/default.nix { };
   xctoolchainLipo = callPackage ../../utils/xctoolchain/lipo.nix { };
+  xctoolchainXcrun = callPackage ../../utils/xctoolchain/xcrun.nix { };
   ffmpeg = callPackage ../mk-pkg-ffmpeg/default.nix { };
   uchardet = callPackage ../mk-pkg-uchardet/default.nix { };
   libass = callPackage ../mk-pkg-libass/default.nix { };
@@ -58,6 +59,7 @@ let
       ];
 
   nativeBuildInputs = [
+    xctoolchainXcrun
     pkgs.meson
     pkgs.ninja
     pkgs.pkg-config
@@ -87,11 +89,17 @@ let
 
     cd $src
     patch -p1 <${../../../patches/mpv-fix-missing-objc.patch}
-    patch -p1 <${../../../patches/mpv-mix-with-others.patch}
+    if grep -q 'AVAudioSessionCategoryOptionMixWithOthers' audio/out/ao_audiounit.m; then
+      echo 'mpv-mix-with-others.patch is already covered by this mpv source'
+    else
+      patch -p1 <${../../../patches/mpv-mix-with-others.patch}
+    fi
     if [ "${variant}" == "${variants.audio}" ]; then
       patch -p1 <${../../../patches/mpv-remove-libass.patch}
     fi
     ${pkgs.lib.optionalString isMacOSHdrProfile ''
+    patch -p1 <${../../../patches/mpv-swift-libplacebo-generated-include.patch}
+    patch -p1 <${../../../patches/mpv-vt-pl-include-metal-texture-cache.patch}
     mkdir -p "$src/subprojects"
     rm -rf "$src/subprojects/libplacebo"
     cp -r ${libplaceboSource} "$src/subprojects/libplacebo"
@@ -278,6 +286,7 @@ pkgs.stdenvNoCC.mkDerivation {
       `# mpv renderer`
       -Dlibplacebo=enabled `# libplacebo renderer support`
       -Dvulkan=enabled `# Vulkan context support`
+      -Dvideotoolbox-pl=enabled `# Videotoolbox with libplacebo`
       -Dswift-build=enabled `# Swift bits required by macvk`
 
       `# bundled libplacebo subproject`
@@ -323,12 +332,53 @@ pkgs.stdenvNoCC.mkDerivation {
       fi
     fi
 
+    option_file_contains() {
+      local file="$1"
+      local name="$2"
+      [ -f "$file" ] && grep -Eq "^[[:space:]]*option\('$name'" "$file"
+    }
+
+    is_supported_meson_option() {
+      local option="$1"
+
+      case "$option" in
+        -D*:*)
+          local key="''${option#-D}"
+          local project="''${key%%:*}"
+          local name="''${key#*:}"
+          name="''${name%%=*}"
+
+          option_file_contains "$src/subprojects/$project/meson.options" "$name" || \
+            option_file_contains "$src/subprojects/$project/meson_options.txt" "$name"
+          ;;
+        -D*)
+          local key="''${option#-D}"
+          local name="''${key%%=*}"
+
+          option_file_contains "$src/meson.options" "$name" || \
+            option_file_contains "$src/meson_options.txt" "$name"
+          ;;
+        *)
+          return 0
+          ;;
+      esac
+    }
+
+    FILTERED_OPTIONS=()
+    for option in "''${OPTIONS[@]}"; do
+      if is_supported_meson_option "$option"; then
+        FILTERED_OPTIONS+=("$option")
+      else
+        echo "Skipping unsupported mpv Meson option: $option"
+      fi
+    done
+
     meson setup build $src \
       --native-file ${nativeFile} \
       --cross-file ${crossFile} \
       --prefix=$out \
       "''${FORCE_FALLBACK_ARGS[@]}" \
-      "''${OPTIONS[@]}" |
+      "''${FILTERED_OPTIONS[@]}" |
       tee configure.log
   '';
   buildPhase = ''

@@ -19,13 +19,15 @@ let
     name = "${pname}-source-${version}";
     inherit (packageLock) url sha256;
   };
-  libpngPatch = builtins.fetchurl {
+  libpngPatch = import ../../utils/fetch-file/default.nix {
+    name = "${pname}-patch-${version}";
     inherit (packagePatchLock) url sha256;
   };
   patchedSource =
     pkgs.runCommand "${pname}-patched-source-${version}"
       {
         nativeBuildInputs = [
+          pkgs.perl
           pkgs.unzip
           pkgs.rsync
         ];
@@ -38,6 +40,11 @@ let
         # extract and patch libpng dependency
         unzip ${libpngPatch} -d libpng-patch
         rsync -a libpng-patch/libpng-*/ $src/
+
+        # Xcode 26 clang predefines TARGET_OS_MAC for modern Darwin builds.
+        # libpng treats that as classic Mac OS and tries to include <fp.h>,
+        # which no longer exists in current macOS SDKs.
+        perl -0pi -e 's/defined\(THINK_C\) \|\| defined\(__SC__\) \|\| defined\(TARGET_OS_MAC\)/defined(THINK_C) || defined(__SC__) || (defined(TARGET_OS_MAC) \&\& !defined(__APPLE__))/g' $src/pngpriv.h
 
         cp -r $src $out
       '';

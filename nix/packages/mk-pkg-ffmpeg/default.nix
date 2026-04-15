@@ -43,7 +43,11 @@ let
 
     cd $src
     patch -p1 <${../../../patches/ffmpeg-fix-vp9-hwaccel.patch}
-    patch -p1 <${../../../patches/ffmpeg-fix-hls-mp4-seek.patch}
+    if grep -q 'Reset the init segment' libavformat/hls.c; then
+      echo 'ffmpeg-fix-hls-mp4-seek.patch is already covered by this FFmpeg source'
+    else
+      patch -p1 <${../../../patches/ffmpeg-fix-hls-mp4-seek.patch}
+    fi
     patch -p1 <${../../../patches/ffmpeg-fix-ios-hdr-texture.patch}
     patch -p1 <${../../../patches/ffmpeg-fix-dash-base-url-escape.patch}
     cd -

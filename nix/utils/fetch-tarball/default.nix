@@ -7,8 +7,12 @@
   sha256,
 }:
 let
-  tarball = builtins.fetchurl {
-    inherit url sha256;
+  tarball = import ../fetch-file/default.nix {
+    inherit
+      name
+      url
+      sha256
+      ;
   };
 in
 pkgs.runCommand name { } ''

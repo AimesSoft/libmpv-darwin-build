@@ -1,0 +1,12 @@
+diff --git a/video/out/hwdec/hwdec_vt_pl.m b/video/out/hwdec/hwdec_vt_pl.m
+index e7040450a9..57400a54c4 100644
+--- a/video/out/hwdec/hwdec_vt_pl.m
++++ b/video/out/hwdec/hwdec_vt_pl.m
+@@ -21,6 +21,7 @@
+ #include <assert.h>
+ 
+ #include <CoreVideo/CoreVideo.h>
++#include <CoreVideo/CVMetalTextureCache.h>
+ #include <Metal/Metal.h>
+ 
+ #include <libavutil/hwcontext.h>

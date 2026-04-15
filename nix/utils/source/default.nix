@@ -12,20 +12,25 @@
 }:
 
 let
-  envPath =
+  envPathValue =
     if envVar != "" then
       builtins.getEnv envVar
     else
       "";
+  envPath =
+    if envPathValue != "" then
+      /. + envPathValue
+    else
+      null;
   chosenLocalPath =
-    if envPath != "" then
+    if envPath != null then
       envPath
     else if localPath != null && builtins.pathExists localPath then
-      toString localPath
+      localPath
     else
-      "";
+      null;
 in
-if chosenLocalPath != "" then
+if chosenLocalPath != null then
   pkgs.lib.cleanSourceWith {
     name = "${name}-source-${version}-local";
     src = builtins.path {
