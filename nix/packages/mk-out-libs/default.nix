@@ -50,6 +50,19 @@ if arch != archs.universal then
     libpng = callPackage ../mk-pkg-libpng/default.nix { };
     libvpx = callPackage ../mk-pkg-libvpx/default.nix { };
     libx264 = callPackage ../mk-pkg-libx264/default.nix { };
+    buildProfile = import ../../utils/default/build-profile.nix;
+    oses = import ../../utils/constants/oses.nix;
+    moltenvk =
+      if builtins.hasAttr "moltenvk" pkgs then
+        builtins.getAttr "moltenvk" pkgs
+      else if builtins.hasAttr "MoltenVK" pkgs then
+        builtins.getAttr "MoltenVK" pkgs
+      else
+        null;
+    includeMoltenVK =
+      buildProfile == "macos-hdr"
+      && os == oses.macos
+      && variant == variants.video;
 
     deps =
       [
@@ -71,6 +84,14 @@ if arch != archs.universal then
         fribidi
         freetype
         libpng
+      ]
+      ++ pkgs.lib.optionals includeMoltenVK [
+        (
+          if moltenvk == null then
+            abort "libmpv-darwin-build: nixpkgs is missing moltenvk, required for macos-hdr runtime"
+          else
+            moltenvk
+        )
       ]
       ++ pkgs.lib.optionals (variant == variants.video && flavor == flavors.encodersgpl) [
         libvpx
